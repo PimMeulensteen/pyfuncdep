@@ -1,0 +1,17 @@
+A → C
+
+    C → G
+
+    G → B
+
+    B → D, G
+
+    G, H → E, F
+
+    F → A, C
+
+    A, E, H → G
+
+    A, E, G → F, H
+
+    C, D, F → G
