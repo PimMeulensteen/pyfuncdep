@@ -3,12 +3,11 @@ of a sysmtem of functional dependencies (FDs). """
 from __future__ import annotations
 from functools import reduce
 from itertools import chain, combinations
-from typing import List, Any, Iterable, Set, FrozenSet, TypeVar, Union
-import sys
+from typing import List, Any, Iterable, Set, FrozenSet, Union
 
 
 def _powerset(iterable: Iterable) -> Iterable:
-    """ Give the powerset of a iterable """
+    """ Give the powerset of a iterable. """
     iterable_list = list(iterable)
     return map(
         frozenset,
@@ -25,13 +24,22 @@ class FD:
     left: FrozenSet[Any]
     right: FrozenSet[Any]
 
-    def __init__(self, a, b=None) -> None:
-        if b:
+    def __init__(self, a=None, b=None) -> None:
+        if not a and not b:
+            self.left = frozenset()
+            self.right = frozenset()
+            return
+        elif b:
             self.left = frozenset(a)
             self.right = frozenset(b)
         else:
             self.left = frozenset(a[0])
-            self.right = frozenset(a[2])
+            self.right = frozenset(a[-1])
+
+    def is_trivial(self) -> bool:
+        """ Return True if func_dep is trivial. We call a FD X->Y trivial
+            if Y is a subset of X. """
+        return self.right <= self.left
 
     def split_right(self) -> List[FD]:
         """ Split multiple values on the right into multi single-valued FDs """
@@ -54,27 +62,30 @@ class FD:
 
 
 class FDs:
-    """ This is a class for a list of FDs. """
+    """ This is a class for a system of FDs. """
 
     fds: Set[Any]
     alphabet: FrozenSet[Any]
 
-    def __init__(self, fds: list) -> None:
+    def __init__(self, fds: list = []) -> None:
         self.fds = set(fds)
         self.alphabet = self.find_alphabet()
 
     def find_alphabet(self) -> FrozenSet[Any]:
         """ Find the alphabet of a system of FDs """
+        if not self.fds:
+            return frozenset()
+            
         result: Set[Any] = set()
         for i in self.fds:
             result.update(*i.left)
             result.update(*i.right)
         return frozenset(result)
 
-    def is_trivial(self, func_dep: FD) -> bool:
-        """ Return True if func_dep is trivial. We call a FD X->Y trivial
-            if Y is a subset of X. """
-        return func_dep.right <= func_dep.left
+    def append_fd(self, fd: FD) -> None:
+        self.fds = self.fds.add(fd)
+        self.alphabet = self.find_alphabet()
+
 
     def is_bcnf(self, func_dep_list: List[Set]) -> bool:
         """ Return True if the FDs are in BCNF, False otherwise """
@@ -84,22 +95,22 @@ class FDs:
                 i.issubset(func_dep.left) for i in func_dep_list
             )  # left contains a key of R.
 
-        return all(
-            self.is_trivial(fd) or condition_2(fd, func_dep_list) for fd in self.fds
-        )
+        return all(fd.is_trivial() or condition_2(fd, func_dep_list) for fd in self.fds)
 
     def is_3nf(self, keys: Set[FrozenSet]) -> bool:
         """ Return True if the FDs are in 3NF, False otherwise """
         fds = self.split_right().fds
 
         def condition_2(func_dep: FD, keys: set) -> bool:
-            return any(i <= func_dep.left for i in keys)  # left contains a key of R.
+            # left contains a key of R.
+            return any(i <= func_dep.left for i in keys)
 
         def condition_3(func_dep: FD, keys: set) -> bool:
-            return any(i >= func_dep.right for i in keys)  # B is a key attribute of R.
+            # B is a key attribute of R.
+            return any(i >= func_dep.right for i in keys)
 
         return all(
-            self.is_trivial(fd) or condition_2(fd, keys) or condition_3(fd, keys)
+            fd.is_trivial() or condition_2(fd, keys) or condition_3(fd, keys)
             for fd in fds
         )
 
@@ -179,7 +190,7 @@ class FDs:
         len_f = 0
         while sum([len(x.left) for x in F]) != len_f:
             len_f = sum([len(x.left) for x in F])
-            F = [i for i in F if not self.is_trivial(i)]
+            F = [i for i in F if not i.is_trivial()]
             F = [reduce_left_side(self, i) for i in F]
             for f in F:
                 if is_implied(F, f):
@@ -238,8 +249,7 @@ class FDs:
                         change = True
                         break
 
-        print("Boyce Codd Normal Form (MIGHT NOT BE CORRECT)")
-        self.print_relations(relations)
+        return relations
 
     def to_3nf(self) -> None:
         """ Find a 3rd Normal Form of the current FDs object.
@@ -298,52 +308,12 @@ class FDs:
             relations |= {min_keys[0]}
 
         print("Third normal form relations:")
-        self.print_relations(remove_doubles(relations))
+        return remove_doubles(relations)
 
     def set_is_valid(self, my_set: Set) -> bool:
         """Return true if my_set is contained in the alphabet of the FD object.
         False otherwise."""
         return my_set.issubset(set(self.alphabet))
-
-    def print_cover_set(self, my_set: Set) -> None:
-        print(f"Coverset of {my_set}:")
-        self.print_set(self.cover_set(my_set))
-
-    def print_all_minimal_keys(self) -> None:
-        print("Minimal sets are: ")
-        self.print_list_set(self.minimal_keys(self.alphabet))
-
-    def print_determinants(self, my_set: Set) -> None:
-        print(f"Determinants of {my_set}:")
-        self.print_list_set(self.determinants(my_set))
-
-    def print_canonical(self) -> None:
-        print("Canonical functional dependencies of the object:")
-        self.print_list_fd(self.canonical())
-
-    @staticmethod
-    def print_relations(relations: List) -> None:
-        for index, rel in enumerate(relations):
-            print(f"Relation{index + 1}(", end="")
-            print(*rel, sep=",", end="")
-            print(")")
-
-    @staticmethod
-    def print_list_set(set_list: List[Set]) -> None:
-        """ Print a list of sets nicely. """
-        for set_to_print in set_list:
-            FDs.print_set(set_to_print)
-
-    @staticmethod
-    def print_set(my_set: Set) -> None:
-        """ Print a set nicely. """
-        print("{" + ",".join(my_set) + "}")
-
-    @staticmethod
-    def print_list_fd(fd_list: List[Set]) -> None:
-        """ Print a list of sets nicely. """
-        for fd in fd_list:
-            print(fd)
 
     def __repr__(self) -> str:
         return str(self)
@@ -351,13 +321,18 @@ class FDs:
     def __str__(self) -> str:
         return "\n".join([str(i) for i in self.fds])
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, FDs):
+            return NotImplemented
+
+        return self.fds == self.fds
 
 
 def str_to_fds(string: list, delim: Union[str, List[str]]) -> list:
     """ Turn a string into a list of FDs """
     result = []
     for line in string:
-        line_components = line.split("→")
+        line_components = line.split(delim)
         result.append(
             [
                 set(line_components[0].strip().split(", ")),
@@ -367,5 +342,3 @@ def str_to_fds(string: list, delim: Union[str, List[str]]) -> list:
         )
 
     return [FD(i) for i in result]
-
-
